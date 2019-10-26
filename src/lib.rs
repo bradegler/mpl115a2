@@ -6,6 +6,7 @@ extern crate embedded_hal as hal;
 pub mod mpl115a2 {
     use hal::blocking::i2c::{Write, WriteRead, Read};
     use byteorder::{BigEndian, ByteOrder};
+    use embedded_hal::blocking::delay::DelayMs;
 
     pub const MPL115A2_I2C_ADDR: u8 = 0x60; // i2c device address
 
@@ -33,16 +34,18 @@ pub mod mpl115a2 {
         adj
     }
 
-    pub struct MPL115A2<I2C> {
+    pub struct MPL115A2<I2C, Delay> {
         pub i2c: I2C,
+        pub delay: Delay,
         pub coefficients: MPL115A2Coefficients,
     }
 
-    impl <I2C, E> MPL115A2 <I2C> 
+    impl <I2C, Delay, E> MPL115A2 <I2C, Delay> 
         where I2C : WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
+        Delay: DelayMs<u8>,
     {
         /// Creates a new driver from a I2C peripheral
-        pub fn new(mut i2c: I2C) -> Result<Self, E> {
+        pub fn new(mut i2c: I2C, delay: Delay) -> Result<Self, E> {
             let mut buf: [u8; 8] = [0; 8];
             // This should be built from a read of registers 0x04-0x0B in
             // order.  This gets the raw, unconverted value of each coefficient.
@@ -54,9 +57,26 @@ pub mod mpl115a2 {
             let coefficients = MPL115A2Coefficients::new(a0, b1, b2, c12);
             let mpl115a2 = MPL115A2 { 
                 i2c: i2c,
+                delay: delay,
                 coefficients: coefficients,
             };
             Ok(mpl115a2)
+        }
+
+        pub fn read_sensor(mut self,
+        ) -> Result<MPL115A2RawReading, E> {
+            self.i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
+            // maximum conversion time is 3ms
+            self.delay.delay_ms(3);
+
+            let mut buf = [0_u8; 4];
+            self.i2c.write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_PADC], &mut buf)?;
+            let padc: u16 = BigEndian::read_u16(&buf) >> 6;
+            let tadc: u16 = BigEndian::read_u16(&buf[2..]) >> 6;
+            Ok(MPL115A2RawReading {
+                padc: padc,
+                tadc: tadc,
+            })
         }
     }
 
@@ -106,5 +126,22 @@ pub mod mpl115a2 {
                 c12: c12,
             }
         }
+    }
+
+    /// In order to get either the temperature or humdity it is
+    /// necessary to read several different values from the chip.
+    ///
+    /// These are not generally useful in and of themselves but
+    /// are used for calculating temperature/pressure.  The structure
+    /// is exposed externally as they *could* be useful for some
+    /// unknown use case.  Generally, you shouldn't ever need
+    /// to use this directly.
+    ///
+    /// One use case for use of this struct directly would be for
+    /// getting both temperature and pressure in a single call.
+    #[derive(Debug)]
+    pub struct MPL115A2RawReading {
+        padc: u16, // 10-bit pressure ADC output value
+        tadc: u16, // 10-bit pressure ADC output value
     }
 }
