@@ -80,27 +80,7 @@ pub mod mpl115a2 {
         }
     }
 
-    /// Trait for sensors that provide access to temperature readings
-    pub trait Thermometer {
-        type Error;
-        /// Get a temperature from the sensor in degrees celsius
-        ///
-        /// Returns `Ok(temperature)` if available, otherwise returns
-        /// `Err(Self::Error)`
-        fn temperature_celsius(&mut self) -> Result<f32, Self::Error>;
-    }
-
-    /// Trait for sensors that provide access to pressure readings
-    pub trait Barometer {
-        type Error;
-        /// Get a pressure reading from the sensor in kPa
-        ///
-        /// Returns `Ok(pressure)` if avialable, otherwise returns
-        /// `Err(Self::Error)`
-        fn pressure_kpa(&mut self) -> Result<f32, Self::Error>;
-    }
-
-        /// The sensors has several coefficients that must be used in order
+    /// The sensors has several coefficients that must be used in order
     /// to calculate a correct value for pressure/temperature.
     ///
     /// This structure provides access to those.  It is usually only
@@ -143,5 +123,24 @@ pub mod mpl115a2 {
     pub struct MPL115A2RawReading {
         padc: u16, // 10-bit pressure ADC output value
         tadc: u16, // 10-bit pressure ADC output value
+    }
+    impl MPL115A2RawReading {
+        /// Calculate the temperature in centrigrade for this reading
+        pub fn temperature_celsius(&self) -> f32 {
+            (self.tadc as f32 - 498.0) / -5.35 + 25.0
+        }
+
+        /// Calculate the pressure in pascals for this reading
+        pub fn pressure_kpa(&self, coeff: &MPL115A2Coefficients) -> f32 {
+            // Pcomp = a0 + (b1 + c12 * Tadc) * Padc + b2 * Tadc
+            // Pkpa = Pcomp * ((115 - 50) / 1023) + 50
+            let pcomp: f32 = coeff.a0
+                + (coeff.b1 + coeff.c12 * self.tadc as f32) * self.padc as f32
+                + (coeff.b2 * self.tadc as f32);
+
+            // scale has 1023 bits of range from 50 kPa to 115 kPa
+            let pkpa: f32 = pcomp * ((115.0 - 50.0) / 1023.0) + 50.0;
+            pkpa
+        }
     }
 }
