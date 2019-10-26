@@ -1,0 +1,12 @@
+[package]
+name = "mpl115a2"
+version = "0.0.1"
+authors = ["Brad Egler <brad.egler@pickatto.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = "0.2.3"
+cast = "0.2.2"
+byteorder = "1.3.2"
