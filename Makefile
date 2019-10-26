@@ -4,7 +4,7 @@ PROJECT_NAME     := mpl115a2
 .PHONY: clean build
 
 build:
-	cargo build
+	@cargo build
 
 clean:
-	cargo clean
+	@cargo clean
