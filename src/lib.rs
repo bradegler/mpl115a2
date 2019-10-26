@@ -48,7 +48,7 @@ pub mod mpl115a2 {
         pub fn new(mut i2c: I2C, delay: Delay) -> Result<Self, E> {
             let mut buf: [u8; 8] = [0; 8];
             // This should be built from a read of registers 0x04-0x0B in
-            // order.  This gets the raw, unconverted value of each coefficient.
+            // order. This gets the raw, unconverted value of each coefficient.
             i2c.write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_A0], &mut buf)?;
             let a0 = calc_coefficient(buf[0], buf[1], 12, 3, 0);
             let b1 = calc_coefficient(buf[2], buf[3], 2, 13, 0);
@@ -83,7 +83,7 @@ pub mod mpl115a2 {
     /// The sensors has several coefficients that must be used in order
     /// to calculate a correct value for pressure/temperature.
     ///
-    /// This structure provides access to those.  It is usually only
+    /// This structure provides access to those. It is usually only
     /// necessary to read these coefficients once per interaction
     /// with the acclerometer.  It does not need to be read again
     /// on each sample.
@@ -108,7 +108,7 @@ pub mod mpl115a2 {
         }
     }
 
-    /// In order to get either the temperature or humdity it is
+    /// In order to get either the temperature or pressure it is
     /// necessary to read several different values from the chip.
     ///
     /// These are not generally useful in and of themselves but
@@ -116,9 +116,6 @@ pub mod mpl115a2 {
     /// is exposed externally as they *could* be useful for some
     /// unknown use case.  Generally, you shouldn't ever need
     /// to use this directly.
-    ///
-    /// One use case for use of this struct directly would be for
-    /// getting both temperature and pressure in a single call.
     #[derive(Debug)]
     pub struct MPL115A2RawReading {
         padc: u16, // 10-bit pressure ADC output value
