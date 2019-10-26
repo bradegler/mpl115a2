@@ -12,7 +12,7 @@ This driver was built using [`embedded-hal`] traits.
 
 ## What works
 
-- [ ] Read device coefficients
+- [x] Read device coefficients
 - [ ] Initiate barometric pressure and temperature sampling
 - [ ] Read barometric pressure value
 - [ ] Read temperature value
