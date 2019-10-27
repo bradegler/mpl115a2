@@ -4,21 +4,16 @@ extern crate byteorder;
 extern crate embedded_hal as hal;
 
 pub mod mpl115a2 {
-    use hal::blocking::i2c::{Write, WriteRead, Read};
+    use hal::blocking::i2c::{Write, WriteRead};
     use byteorder::{BigEndian, ByteOrder};
     use embedded_hal::blocking::delay::DelayMs;
 
     pub const MPL115A2_I2C_ADDR: u8 = 0x60; // i2c device address
-
-    #[allow(dead_code)]
-    const REGISTER_ADDR_PADC: u8 = 0x00;
-    #[allow(dead_code)]
-    const REGISTER_ADDR_TADC: u8 = 0x02;
+    const REGISTER_ADDR_PADC: u8 = 0x00; // Start address for PADC and TADC
     const REGISTER_ADDR_A0: u8 = 0x04; // Start address for coefficients
-    #[allow(dead_code)]
     const REGISTER_ADDR_START_CONVERSION: u8 = 0x12;
 
-    /// Calculates a coefficient value for a 
+    /// Calculates a coefficient value for a msb + lsb pair
     fn calc_coefficient(
         msb: u8,
         lsb: u8,
@@ -34,6 +29,27 @@ pub mod mpl115a2 {
         adj
     }
 
+    /// Trait for sensors that provide access to pressure readings
+    pub trait Barometer {
+        type Error;
+
+        /// Get a pressure reading from the sensor in kPa
+        ///
+        /// Returns `Ok(pressure)` if available, otherwise returns
+        /// `Err(Self::Error)`
+        fn pressure_kpa(&mut self) -> Result<f32, Self::Error>;
+    }
+
+    /// Trait for sensors that provide access to temperature readings
+    pub trait Thermometer {
+        type Error;
+        /// Get a temperature reading from the sensor in C
+        ///
+        /// Returns `Ok(temperature)` if available, otherwise returns
+        /// `Err(Self::Error)`
+        fn temperature_celsius(&mut self) -> Result<f32, Self::Error>;
+    }
+
     pub struct MPL115A2<I2C, Delay> {
         pub i2c: I2C,
         pub delay: Delay,
@@ -41,7 +57,7 @@ pub mod mpl115a2 {
     }
 
     impl <I2C, Delay, E> MPL115A2 <I2C, Delay> 
-        where I2C : WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
+        where I2C : WriteRead<Error = E> + Write<Error = E>,
         Delay: DelayMs<u8>,
     {
         /// Creates a new driver from a I2C peripheral
@@ -63,7 +79,7 @@ pub mod mpl115a2 {
             Ok(mpl115a2)
         }
 
-        pub fn read_sensor(mut self,
+        pub fn read_sensor(&mut self,
         ) -> Result<MPL115A2RawReading, E> {
             self.i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
             // maximum conversion time is 3ms
@@ -79,6 +95,31 @@ pub mod mpl115a2 {
             })
         }
     }
+
+    impl <I2C, Delay, E> Barometer for MPL115A2 <I2C, Delay> 
+        where I2C : WriteRead<Error = E> + Write<Error = E>,
+        Delay: DelayMs<u8>,
+    {
+        type Error = E;
+
+        fn pressure_kpa(&mut self) -> Result<f32, Self::Error> {
+            let reading = self.read_sensor()?;
+            Ok(reading.pressure_kpa(&self.coefficients))
+        }
+    }
+
+    impl <I2C, Delay, E> Thermometer for MPL115A2 <I2C, Delay> 
+        where I2C : WriteRead<Error = E> + Write<Error = E>,
+        Delay: DelayMs<u8>,
+    {
+        type Error = E;
+
+        fn temperature_celsius(&mut self) -> Result<f32, Self::Error> {
+            let reading = self.read_sensor()?;
+            Ok(reading.temperature_celsius())
+        }
+    }
+
 
     /// The sensors has several coefficients that must be used in order
     /// to calculate a correct value for pressure/temperature.
