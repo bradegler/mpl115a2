@@ -136,7 +136,7 @@ pub mod mpl115a2 {
         }
     }
 
-    /// The sensors has several coefficients that must be used in order
+    /// The sensor has several coefficients that must be used in order
     /// to calculate a correct value for pressure/temperature.
     ///
     /// This structure provides access to those. It is usually only
@@ -170,7 +170,7 @@ pub mod mpl115a2 {
     /// is exposed externally as they *could* be useful for some
     /// unknown use case.  Generally, you shouldn't ever need
     /// to use this directly.
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct MPL115A2RawReading {
         padc: u16, // 10-bit pressure ADC output value
         tadc: u16, // 10-bit pressure ADC output value
