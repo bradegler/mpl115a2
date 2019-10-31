@@ -1,12 +1,24 @@
+//! # MPL115A2 Barometric Pressure Sensor Library
+//!
+//! The MPL115A2 sensor utilizes the I2C interface.
+//! This crate utilizes the embedded_hal constructs to provide a device
+//! neutral implementation.
+//!
+//! Creation of the sensor retrieves the internal calibration coefficients
+//! and stores them for future use in calculating pressure and temperature.
+//!
+//! See the main datasheet for this sensor [Data Sheet](https://www.nxp.com/docs/en/data-sheet/MPL115A2.pdf)
+//!
 #![no_std]
 
 extern crate byteorder;
 extern crate embedded_hal as hal;
+extern crate libm;
 
 pub mod mpl115a2 {
-    use hal::blocking::i2c::{Write, WriteRead};
     use byteorder::{BigEndian, ByteOrder};
     use embedded_hal::blocking::delay::DelayMs;
+    use hal::blocking::i2c::{Write, WriteRead};
 
     pub const MPL115A2_I2C_ADDR: u8 = 0x60; // i2c device address
     const REGISTER_ADDR_PADC: u8 = 0x00; // Start address for PADC and TADC
@@ -24,8 +36,8 @@ pub mod mpl115a2 {
         // If values are less than 16 bytes, need to adjust
         let extrabits = 16 - integer_bits - fractional_bits - 1;
         let rawval: i16 = BigEndian::read_i16(&[msb, lsb]);
-        let adj = (rawval as f32 / 2_f32.powi(fractional_bits + extrabits))
-            / 10_f32.powi(dec_pt_zero_pad);
+        let adj = (rawval as f32 / libm::powf(2_f32, (fractional_bits + extrabits) as f32))
+            / libm::powf(10_f32, dec_pt_zero_pad as f32);
         adj
     }
 
@@ -56,8 +68,9 @@ pub mod mpl115a2 {
         pub coefficients: MPL115A2Coefficients,
     }
 
-    impl <I2C, Delay, E> MPL115A2 <I2C, Delay> 
-        where I2C : WriteRead<Error = E> + Write<Error = E>,
+    impl<I2C, Delay, E> MPL115A2<I2C, Delay>
+    where
+        I2C: WriteRead<Error = E> + Write<Error = E>,
         Delay: DelayMs<u8>,
     {
         /// Creates a new driver from a I2C peripheral
@@ -71,7 +84,7 @@ pub mod mpl115a2 {
             let b2 = calc_coefficient(buf[4], buf[5], 1, 14, 0);
             let c12 = calc_coefficient(buf[6], buf[7], 0, 13, 9);
             let coefficients = MPL115A2Coefficients::new(a0, b1, b2, c12);
-            let mpl115a2 = MPL115A2 { 
+            let mpl115a2 = MPL115A2 {
                 i2c: i2c,
                 delay: delay,
                 coefficients: coefficients,
@@ -79,14 +92,15 @@ pub mod mpl115a2 {
             Ok(mpl115a2)
         }
 
-        pub fn read_sensor(&mut self,
-        ) -> Result<MPL115A2RawReading, E> {
-            self.i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
+        pub fn read_sensor(&mut self) -> Result<MPL115A2RawReading, E> {
+            self.i2c
+                .write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
             // maximum conversion time is 3ms
             self.delay.delay_ms(3);
 
             let mut buf = [0_u8; 4];
-            self.i2c.write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_PADC], &mut buf)?;
+            self.i2c
+                .write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_PADC], &mut buf)?;
             let padc: u16 = BigEndian::read_u16(&buf) >> 6;
             let tadc: u16 = BigEndian::read_u16(&buf[2..]) >> 6;
             Ok(MPL115A2RawReading {
@@ -96,8 +110,9 @@ pub mod mpl115a2 {
         }
     }
 
-    impl <I2C, Delay, E> Barometer for MPL115A2 <I2C, Delay> 
-        where I2C : WriteRead<Error = E> + Write<Error = E>,
+    impl<I2C, Delay, E> Barometer for MPL115A2<I2C, Delay>
+    where
+        I2C: WriteRead<Error = E> + Write<Error = E>,
         Delay: DelayMs<u8>,
     {
         type Error = E;
@@ -108,8 +123,9 @@ pub mod mpl115a2 {
         }
     }
 
-    impl <I2C, Delay, E> Thermometer for MPL115A2 <I2C, Delay> 
-        where I2C : WriteRead<Error = E> + Write<Error = E>,
+    impl<I2C, Delay, E> Thermometer for MPL115A2<I2C, Delay>
+    where
+        I2C: WriteRead<Error = E> + Write<Error = E>,
         Delay: DelayMs<u8>,
     {
         type Error = E;
@@ -120,7 +136,6 @@ pub mod mpl115a2 {
         }
     }
 
-
     /// The sensors has several coefficients that must be used in order
     /// to calculate a correct value for pressure/temperature.
     ///
@@ -128,18 +143,16 @@ pub mod mpl115a2 {
     /// necessary to read these coefficients once per interaction
     /// with the acclerometer.  It does not need to be read again
     /// on each sample.
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct MPL115A2Coefficients {
-        a0: f32,  // 16 bits, 1 sign, 12 int, 3 fractional, 0 dec pt 0 pad
-        b1: f32,  // 16 bits, 1 sign, 2 int, 13 fractional, 0 dec pt 0 pad
-        b2: f32,  // 16 bits, 1 sign, 1 int, 14 fractional, 0 dec pt 0 pad
-        c12: f32, // 16 bits, 1 sign, 0 int, 13 fractional, 9 dec pt 0 pad
+        pub a0: f32,  // 16 bits, 1 sign, 12 int, 3 fractional, 0 dec pt 0 pad
+        pub b1: f32,  // 16 bits, 1 sign, 2 int, 13 fractional, 0 dec pt 0 pad
+        pub b2: f32,  // 16 bits, 1 sign, 1 int, 14 fractional, 0 dec pt 0 pad
+        pub c12: f32, // 16 bits, 1 sign, 0 int, 13 fractional, 9 dec pt 0 pad
     }
 
-    impl MPL115A2Coefficients 
-        {
-        pub fn new(a0: f32, b1: f32, b2: f32, c12: f32
-        ) -> MPL115A2Coefficients {
+    impl MPL115A2Coefficients {
+        pub fn new(a0: f32, b1: f32, b2: f32, c12: f32) -> MPL115A2Coefficients {
             MPL115A2Coefficients {
                 a0: a0,
                 b1: b1,
