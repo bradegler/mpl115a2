@@ -17,7 +17,6 @@ extern crate libm;
 
 pub mod mpl115a2 {
     use byteorder::{BigEndian, ByteOrder};
-    use embedded_hal::blocking::delay::DelayMs;
     use hal::blocking::i2c::{Write, WriteRead};
 
     pub const MPL115A2_I2C_ADDR: u8 = 0x60; // i2c device address
@@ -41,40 +40,17 @@ pub mod mpl115a2 {
         adj
     }
 
-    /// Trait for sensors that provide access to pressure readings
-    pub trait Barometer {
-        type Error;
-
-        /// Get a pressure reading from the sensor in kPa
-        ///
-        /// Returns `Ok(pressure)` if available, otherwise returns
-        /// `Err(Self::Error)`
-        fn pressure_kpa(&mut self) -> Result<f32, Self::Error>;
-    }
-
-    /// Trait for sensors that provide access to temperature readings
-    pub trait Thermometer {
-        type Error;
-        /// Get a temperature reading from the sensor in C
-        ///
-        /// Returns `Ok(temperature)` if available, otherwise returns
-        /// `Err(Self::Error)`
-        fn temperature_celsius(&mut self) -> Result<f32, Self::Error>;
-    }
-
-    pub struct MPL115A2<I2C, Delay> {
+    pub struct MPL115A2<I2C> {
         pub i2c: I2C,
-        pub delay: Delay,
         pub coefficients: MPL115A2Coefficients,
     }
 
-    impl<I2C, Delay, E> MPL115A2<I2C, Delay>
+    impl<I2C, E> MPL115A2<I2C>
     where
         I2C: WriteRead<Error = E> + Write<Error = E>,
-        Delay: DelayMs<u8>,
     {
         /// Creates a new driver from a I2C peripheral
-        pub fn new(mut i2c: I2C, delay: Delay) -> Result<Self, E> {
+        pub fn new(mut i2c: I2C) -> Result<Self, E> {
             let mut buf: [u8; 8] = [0; 8];
             // This should be built from a read of registers 0x04-0x0B in
             // order. This gets the raw, unconverted value of each coefficient.
@@ -86,18 +62,22 @@ pub mod mpl115a2 {
             let coefficients = MPL115A2Coefficients::new(a0, b1, b2, c12);
             let mpl115a2 = MPL115A2 {
                 i2c: i2c,
-                delay: delay,
                 coefficients: coefficients,
             };
             Ok(mpl115a2)
         }
 
-        pub fn read_sensor(&mut self) -> Result<MPL115A2RawReading, E> {
-            self.i2c
-                .write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
-            // maximum conversion time is 3ms
-            self.delay.delay_ms(3);
+        /// Intiate a reading from the sensor. There is a max a 3ms time for conversion
+        /// within the device. Rather than bind to a particular type of delay, by splititng 
+        /// the main functions between the start of a reading and the actual reading it
+        /// allows for multiple implementations including blocking using SYST with DelayMs or
+        /// as a RTFM task triggered from an interrupt.
+        pub fn start_reading(&mut self) -> Result<u8, E> {
+            self.i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
+            Ok(0u8)
+        }
 
+        pub fn read_sensor(&mut self) -> Result<MPL115A2RawReading, E> {
             let mut buf = [0_u8; 4];
             self.i2c
                 .write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_PADC], &mut buf)?;
@@ -108,31 +88,10 @@ pub mod mpl115a2 {
                 tadc: tadc,
             })
         }
-    }
 
-    impl<I2C, Delay, E> Barometer for MPL115A2<I2C, Delay>
-    where
-        I2C: WriteRead<Error = E> + Write<Error = E>,
-        Delay: DelayMs<u8>,
-    {
-        type Error = E;
-
-        fn pressure_kpa(&mut self) -> Result<f32, Self::Error> {
+        pub fn pressure_kpa(&mut self) -> Result<f32, E> {
             let reading = self.read_sensor()?;
             Ok(reading.pressure_kpa(&self.coefficients))
-        }
-    }
-
-    impl<I2C, Delay, E> Thermometer for MPL115A2<I2C, Delay>
-    where
-        I2C: WriteRead<Error = E> + Write<Error = E>,
-        Delay: DelayMs<u8>,
-    {
-        type Error = E;
-
-        fn temperature_celsius(&mut self) -> Result<f32, Self::Error> {
-            let reading = self.read_sensor()?;
-            Ok(reading.temperature_celsius())
         }
     }
 
@@ -172,8 +131,8 @@ pub mod mpl115a2 {
     /// to use this directly.
     #[derive(Debug, Copy, Clone)]
     pub struct MPL115A2RawReading {
-        padc: u16, // 10-bit pressure ADC output value
-        tadc: u16, // 10-bit pressure ADC output value
+        pub padc: u16, // 10-bit pressure ADC output value
+        pub tadc: u16, // 10-bit pressure ADC output value
     }
     impl MPL115A2RawReading {
         /// Calculate the temperature in centrigrade for this reading
