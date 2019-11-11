@@ -12,6 +12,7 @@
 #![no_std]
 
 extern crate byteorder;
+extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal as hal;
 extern crate libm;
 
@@ -19,6 +20,7 @@ pub mod mpl115a2 {
     use byteorder::{BigEndian, ByteOrder};
     use core::marker::PhantomData;
     use hal::blocking::i2c::{Write, WriteRead};
+    use sh::hprintln;
 
     pub const MPL115A2_I2C_ADDR: u8 = 0x60; // i2c device address
     const REGISTER_ADDR_PADC: u8 = 0x00; // Start address for PADC and TADC
@@ -41,14 +43,16 @@ pub mod mpl115a2 {
         adj
     }
 
-    pub struct MPL115A2<I2C> {
+    pub struct MPL115A2<I2C, Delay> {
         pub i2c: PhantomData<I2C>,
+        pub delay: PhantomData<Delay>,
         pub coefficients: MPL115A2Coefficients,
     }
 
-    impl<I2C, E> MPL115A2<I2C>
+    impl<I2C, Delay, E> MPL115A2<I2C, Delay>
     where
         I2C: WriteRead<Error = E> + Write<Error = E>,
+        Delay: embedded_hal::blocking::delay::DelayMs<u8>,
     {
         /// Creates a new driver from a I2C peripheral
         /// Reads coefficent data from the device from registers 0x04-0x0B
@@ -56,9 +60,11 @@ pub mod mpl115a2 {
         /// reading.
         pub fn new(i2c: &mut I2C) -> Result<Self, E> {
             let mut buf: [u8; 8] = [0; 8];
+            hprintln!("MPL115A2: Reading coefficients").unwrap();
             // This should be built from a read of registers 0x04-0x0B in
             // order. This gets the raw, unconverted value of each coefficient.
             i2c.write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_A0], &mut buf)?;
+            hprintln!("MPL115A2: Raw coefficients -> {:?}", buf).unwrap();
             let a0 = calc_coefficient(buf[0], buf[1], 12, 3, 0);
             let b1 = calc_coefficient(buf[2], buf[3], 2, 13, 0);
             let b2 = calc_coefficient(buf[4], buf[5], 1, 14, 0);
@@ -66,35 +72,30 @@ pub mod mpl115a2 {
             let coefficients = MPL115A2Coefficients::new(a0, b1, b2, c12);
             let mpl115a2 = MPL115A2 {
                 i2c: PhantomData,
+                delay: PhantomData,
                 coefficients: coefficients,
             };
             Ok(mpl115a2)
         }
 
         /// Intiate a reading from the sensor. There is a max a 3ms time for conversion
-        /// within the device. Rather than bind to a particular type of delay, by splititng
-        /// the main functions between the start of a reading and the actual reading it
-        /// allows for multiple implementations including blocking using SYST with DelayMs or
-        /// as a RTFM task triggered from an interrupt.
-        pub fn start_reading(&mut self, i2c: &mut I2C) -> Result<u8, E> {
-            i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION, 0x00])?;
-            Ok(0u8)
-        }
-
-        pub fn read_sensor(&mut self, i2c: &mut I2C) -> Result<MPL115A2RawReading, E> {
+        /// within the device.
+        pub fn pressure_kpa(&mut self, i2c: &mut I2C, delay: &mut Delay) -> Result<f32, E> {
+            hprintln!("MPL115A2: Reading pressure in kPa").unwrap();
+            i2c.write(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_START_CONVERSION])?;
+            delay.delay_ms(50);
             let mut buf = [0_u8; 4];
             i2c.write_read(MPL115A2_I2C_ADDR, &[REGISTER_ADDR_PADC], &mut buf)?;
+            hprintln!("MPL115A2: Read pressure buffer {:?}", buf).unwrap();
             let padc: u16 = BigEndian::read_u16(&buf) >> 6;
             let tadc: u16 = BigEndian::read_u16(&buf[2..]) >> 6;
-            Ok(MPL115A2RawReading {
+            let reading = MPL115A2RawReading {
                 padc: padc,
                 tadc: tadc,
-            })
-        }
-
-        pub fn pressure_kpa(&mut self, i2c: &mut I2C) -> Result<f32, E> {
-            let reading = self.read_sensor(i2c)?;
-            Ok(reading.pressure_kpa(&self.coefficients))
+            };
+            let pressure = reading.pressure_kpa(&self.coefficients);
+            hprintln!("MPL115A2: Pressure value {:?}", pressure).unwrap();
+            Ok(pressure)
         }
     }
 
