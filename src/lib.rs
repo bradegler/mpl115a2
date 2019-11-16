@@ -12,14 +12,12 @@
 #![no_std]
 
 extern crate byteorder;
-extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal as hal;
 extern crate libm;
 
 use byteorder::{BigEndian, ByteOrder};
 use core::marker::PhantomData;
 use hal::blocking::i2c::{Write, WriteRead};
-use sh::hprintln;
 
 const I2C_ADDRESS_PRIMARY: u8 = 0x60; // i2c device address
 
@@ -64,15 +62,9 @@ where
     /// reading.
     pub fn new(i2c: &mut I2C) -> Result<Self, E> {
         let mut buf: [u8; 8] = [0; 8];
-        hprintln!("MPL115A2: Reading coefficients").unwrap();
         // This should be built from a read of registers 0x04-0x0B in
         // order. This gets the raw, unconverted value of each coefficient.
         i2c.write_read(I2C_ADDRESS_PRIMARY, &[Register::A0MSB.addr()], &mut buf)?;
-        hprintln!(
-            "MPL115A2: Creating coefficients from register array -> {:?}",
-            buf
-        )
-        .unwrap();
         let coefficients = MPL115A2Coefficients::from_registers(buf);
         let mpl115a2 = MPL115A2 {
             i2c: PhantomData,
@@ -84,25 +76,22 @@ where
 
     /// Intiate a reading from the sensor. There is a max a 3ms time for conversion
     /// within the device.
-    pub fn pressure_kpa(&mut self, i2c: &mut I2C, delay: &mut Delay) -> Result<f32, E> {
-        hprintln!("MPL115A2: Reading pressure in kPa").unwrap();
-        //i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x01])?;
+    pub fn pressure_kpa(&mut self, i2c: &mut I2C, delay: &mut Delay) -> Result<MPL115A2Reading, E> {
         i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x00])?;
-        delay.delay_ms(50);
+        delay.delay_ms(5);
         let mut buf = [0_u8; 4];
         i2c.write_read(
             I2C_ADDRESS_PRIMARY,
             &[Register::PressureADCMSB.addr()],
             &mut buf,
         )?;
-        hprintln!("MPL115A2: Read pressure buffer {:?}", buf).unwrap();
         let reading = MPL115A2RawReading::from_registers(buf);
         let pressure = reading.pressure_kpa(&self.coefficients);
-        hprintln!("MPL115A2: Pressure value {:?}", pressure).unwrap();
         let temperature = reading.temperature_celsius();
-        hprintln!("MPL115A2: Temperature value {:?}", temperature).unwrap();
-
-        Ok(pressure)
+        Ok(MPL115A2Reading {
+            pressure: pressure,
+            temperature: temperature,
+        })
     }
 }
 
@@ -195,6 +184,14 @@ impl MPL115A2RawReading {
         let pkpa: f32 = pcomp * ((115.0 - 50.0) / 1023.0) + 50.0;
         pkpa
     }
+}
+
+/// Fully compensated pressure and temperature readings.
+/// This structure is the resulting output of the caluculations
+/// for both pressure in kPa and temperature in celcius.
+pub struct MPL115A2Reading {
+    pub pressure: f32,
+    pub temperature: f32,
 }
 
 #[cfg(test)]
