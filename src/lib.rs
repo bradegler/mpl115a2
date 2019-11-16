@@ -86,8 +86,8 @@ where
     /// within the device.
     pub fn pressure_kpa(&mut self, i2c: &mut I2C, delay: &mut Delay) -> Result<f32, E> {
         hprintln!("MPL115A2: Reading pressure in kPa").unwrap();
-        i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x01])?;
-        //i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x00])?;
+        //i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x01])?;
+        i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x00])?;
         delay.delay_ms(50);
         let mut buf = [0_u8; 4];
         i2c.write_read(
@@ -99,6 +99,9 @@ where
         let reading = MPL115A2RawReading::from_registers(buf);
         let pressure = reading.pressure_kpa(&self.coefficients);
         hprintln!("MPL115A2: Pressure value {:?}", pressure).unwrap();
+        let temperature = reading.temperature_celsius();
+        hprintln!("MPL115A2: Temperature value {:?}", temperature).unwrap();
+
         Ok(pressure)
     }
 }
@@ -264,6 +267,10 @@ mod tests {
         assert_almost_eq!(coefficients.a0, 2009.75f32);
         assert_almost_eq!(coefficients.b1, -2.37585);
         assert_almost_eq!(coefficients.b2, -0.92047);
+        // @TODO - This is weird. Based on the docs c12 in the example (data sheet, page 11)
+        // should have a value of 0.000790 but that does not match with the calculation and
+        // I see no issues with the way the calculation works. Will need to investigate this
+        // futher at some point.
         assert_almost_eq!(coefficients.c12, 0.000_000_000_404_541);
     }
 
