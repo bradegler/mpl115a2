@@ -1,13 +1,13 @@
 //! # MPL115A2 Barometric Pressure Sensor Library
 //!
 //! The MPL115A2 sensor utilizes the I2C interface.
-//! This crate utilizes the embedded_hal constructs to provide a device
-//! neutral implementation.
+//! This crate interacts with the underlying IC2 bus via the embedded_hal constructs
+//! to provide a device neutral implementation.
 //!
 //! Creation of the sensor retrieves the internal calibration coefficients
 //! and stores them for future use in calculating pressure and temperature.
 //!
-//! See the main datasheet for this sensor [Data Sheet](https://www.nxp.com/docs/en/data-sheet/MPL115A2.pdf)
+//! See the main [Data Sheet](https://www.nxp.com/docs/en/data-sheet/MPL115A2.pdf) for this sensor.
 //!
 #![no_std]
 
@@ -19,7 +19,8 @@ use byteorder::{BigEndian, ByteOrder};
 use core::marker::PhantomData;
 use hal::blocking::i2c::{Write, WriteRead};
 
-const I2C_ADDRESS_PRIMARY: u8 = 0x60; // i2c device address
+// i2c device address
+const I2C_ADDRESS_PRIMARY: u8 = 0x60;
 
 #[derive(Copy, Clone)]
 #[allow(dead_code)]
@@ -45,9 +46,12 @@ impl Register {
     }
 }
 
+/// MPL115A2 is the main sensor structure. It maintains a copy
+/// of the sensor coefficients after they are read. The stored
+/// values are used on all subsequent calls to read pressure.
 pub struct MPL115A2<I2C, Delay> {
-    pub i2c: PhantomData<I2C>,
-    pub delay: PhantomData<Delay>,
+    i2c: PhantomData<I2C>,
+    delay: PhantomData<Delay>,
     pub coefficients: MPL115A2Coefficients,
 }
 
@@ -56,26 +60,25 @@ where
     I2C: WriteRead<Error = E> + Write<Error = E>,
     Delay: embedded_hal::blocking::delay::DelayMs<u8>,
 {
-    /// Creates a new driver from a I2C peripheral
-    /// Reads coefficent data from the device from registers 0x04-0x0B
+    /// Creates a new driver from a I2C peripheral.
+    ///
+    /// Reads coefficent data from the device from registers 0x04-0x0B.
+    ///
     /// This data is stored in memory in the sensor to be used during pressure
     /// reading.
     pub fn new(i2c: &mut I2C) -> Result<Self, E> {
         let mut buf: [u8; 8] = [0; 8];
-        // This should be built from a read of registers 0x04-0x0B in
-        // order. This gets the raw, unconverted value of each coefficient.
         i2c.write_read(I2C_ADDRESS_PRIMARY, &[Register::A0MSB.addr()], &mut buf)?;
         let coefficients = MPL115A2Coefficients::from_registers(buf);
-        let mpl115a2 = MPL115A2 {
+        Ok(MPL115A2 {
             i2c: PhantomData,
             delay: PhantomData,
             coefficients: coefficients,
-        };
-        Ok(mpl115a2)
+        })
     }
 
-    /// Intiate a reading from the sensor. There is a max a 3ms time for conversion
-    /// within the device.
+    /// Intiate a reading from the sensor. There is a max of 3ms time for conversion
+    /// within the sensor.
     pub fn pressure_kpa(&mut self, i2c: &mut I2C, delay: &mut Delay) -> Result<MPL115A2Reading, E> {
         i2c.write(I2C_ADDRESS_PRIMARY, &[Register::Convert.addr(), 0x00])?;
         delay.delay_ms(5);
@@ -100,7 +103,7 @@ where
 ///
 /// This structure provides access to those. It is usually only
 /// necessary to read these coefficients once per interaction
-/// with the acclerometer.  It does not need to be read again
+/// with the sensor.  It does not need to be read again
 /// on each sample.
 #[derive(Debug, Copy, Clone)]
 pub struct MPL115A2Coefficients {
@@ -154,7 +157,7 @@ impl MPL115A2Coefficients {
 /// unknown use case.  Generally, you shouldn't ever need
 /// to use this directly.
 #[derive(Debug, Copy, Clone)]
-pub struct MPL115A2RawReading {
+struct MPL115A2RawReading {
     pub padc: u16, // 10-bit pressure ADC output value
     pub tadc: u16, // 10-bit pressure ADC output value
 }
